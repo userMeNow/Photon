@@ -1,0 +1,23 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.1",
+    "avsc": "^5.7.7",
+    "bs58": "^6.0.0",
+    "buffer": "^6.0.3",
+    "i": "^0.3.7",
+    "nodemon": "^3.1.10",
+    "puppeteer": "^24.8.2",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "ws": "^8.18.2"
+  },
+  "scripts": {
+    "dev": "nodemon index.js",
+    "start": "node index.js"
+  },
+  "name": "dexscreenerWebsocket",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT"
+}
