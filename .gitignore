@@ -1,2 +1,4 @@
 node_modules
 playwright
+out_pairs.json
+pairs.json
