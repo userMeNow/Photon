@@ -1,10 +1,11 @@
 {
-  "type": "module",
   "dependencies": {
     "@msgpack/msgpack": "^3.1.1",
     "avsc": "^5.7.7",
+    "axios": "^1.9.0",
     "bs58": "^6.0.0",
     "buffer": "^6.0.3",
+    "dotenv": "^16.5.0",
     "i": "^0.3.7",
     "nodemon": "^3.1.10",
     "puppeteer": "^24.8.2",
@@ -13,11 +14,19 @@
     "ws": "^8.18.2"
   },
   "scripts": {
-    "dev": "nodemon index.js",
-    "start": "node index.js"
+    "dev": "npx ts-node --transpile-only src/index.ts",
+    "watch": "nodemon",
+    "build": "tsc",
+    "start": "node dist/index.js"
   },
   "name": "dexscreenerWebsocket",
   "version": "1.0.0",
-  "main": "index.js",
-  "license": "MIT"
+  "main": "index.ts",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "@types/ws": "^8.18.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  }
 }
