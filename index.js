@@ -78,7 +78,7 @@ const start = async () => {
       for (let i = 0; i < ascii.length - 8; i++) {
         if (!isLowerWord(ascii[i])) continue;           
         if (!isLowerWord(ascii[i + 1])) continue;       
-        if (!isBase58(ascii[i + 2])) continue;          // pairAddress
+        if (!isBase58(ascii[i + 2])) continue;          
 
         const { pool, tok1 } = splitPair(ascii[i + 2]);
         const name = ascii[i + 3].replace(/^"+|"+$/g, '').trim();   // убираем кавычки
