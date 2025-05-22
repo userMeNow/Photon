@@ -2,3 +2,7 @@ node_modules
 playwright
 out_pairs.json
 pairs.json
+pairs
+README_DEV
+dist
+.env

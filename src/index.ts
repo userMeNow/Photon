@@ -2,28 +2,8 @@
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 const WebSocket = require('ws');
-import fs from 'fs';
-import path from 'path';
 import { sendMessageToTelegramBot } from './telegram';
-
-// ─── helpers ────────────────────────────────────────────────────────────────────
-export function saveArray(
-  filePath: string,
-  arr: unknown[] | Record<string, unknown>,
-  append = false
-): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-
-  const json = JSON.stringify(arr, null, 2);
-
-  append
-    ? fs.appendFileSync(filePath, json + '\n')
-    : fs.writeFileSync(filePath, json);
-
-  console.log(
-    `💾  saved ${Array.isArray(arr) ? arr.length + ' items' : ''} -> ${filePath}`
-  );
-}
+import {saveArray} from "./helpers";
 
 // ─── puppeteer setup ────────────────────────────────────────────────────────────
 puppeteer.use(StealthPlugin());
@@ -92,11 +72,11 @@ const start = async (): Promise<void> => {
   });
 
   // ─── local parsers ────────────────────────────────────────────────────────────
-  const isLowerWord  = (s: string): boolean => /^[a-z]{3,12}$/.test(s);
-  const isBase58     = (s: string): boolean => /^[A-Za-z0-9]{40,}$/.test(s);
-  const isUpperSymbol= (s: string): boolean => /^[A-Z0-9]{2,10}$/.test(s);
-  const isPrice      = (s: string): boolean => /^\d*\.?\d+$/.test(s);
-  const looksQuote   = (s: string): boolean => /(wrapped|usd|sol|eth)/i.test(s);
+  const isLowerWord = (s: string): boolean => /^[a-z]{3,12}$/.test(s);
+  const isBase58 = (s: string): boolean => /^[A-Za-z0-9]{40,}$/.test(s);
+  const isUpperSymbol = (s: string): boolean => /^[A-Z0-9]{2,10}$/.test(s);
+  const isPrice = (s: string): boolean => /^\d*\.?\d+$/.test(s);
+  const looksQuote = (s: string): boolean => /(wrapped|usd|sol|eth)/i.test(s);
 
   function splitPair(addr: string): { pool: string; tok1: string } {
     const pool = addr.slice(addr.length - 89, 45); // длина двух адресов ~90
@@ -115,7 +95,7 @@ const start = async (): Promise<void> => {
         if (!isBase58(ascii[i + 2])) continue;
 
         const { pool, tok1 } = splitPair(ascii[i + 2]);
-        const name   = ascii[i + 3].replace(/^"+|"+$/g, '').trim();
+        const name = ascii[i + 3].replace(/^"+|"+$/g, '').trim();
         const symbol = ascii[i + 4].replace(/^"+|"+$/g, '').trim();
         if (!isUpperSymbol(symbol)) continue;
 
@@ -128,11 +108,11 @@ const start = async (): Promise<void> => {
         if (!isPrice(priceSol) || !isPrice(priceUsd)) continue;
 
         out.push({
-          network   : ascii[i],
-          dex       : ascii[i + 1],
+          network: ascii[i],
+          dex: ascii[i + 1],
           poolAddress: pool,
-          token1    : tok1,
-          token2    : quoteId,
+          token1: tok1,
+          token2: quoteId,
           name,
           symbol,
           quoteSymbol: quoteNm,
@@ -150,33 +130,23 @@ const start = async (): Promise<void> => {
   }
 
   // ─── expose fn for browser → node ─────────────────────────────────────────────
-  await page.exposeFunction('ascii', (data: string[]): void => {
-    saveArray('./pairs.json', data);
+  await page.exposeFunction('ascii', (data: string[], socketType): void => {
+    saveArray(`pairs/pairs_${socketType}.json`, data);
 
     const newData = extractTokenPairs(data);
     if (newData?.length) {
-      saveArray('./out_pairs.json', newData);
-      console.log('newData', newData);
+      saveArray(`pairs//out_pairs_${socketType}.json`, newData);
+      console.log(`newData_${socketType}`, newData);
     }
   });
 
   // ─── browser-side WS sniffer ──────────────────────────────────────────────────
   await page.evaluate(() => {
-    const ws = new WebSocket(
-      'wss://io.dexscreener.com/dex/screener/v5/pairs/h24/1?rankBy[key]=trendingScoreM5&rankBy[order]=desc&filters[chainIds][0]=solana'
-    );
+    const onOpenHandler = (socketType) => () => {
+      console.log(`Socket connection was setted for socket type - ${socketType}`)
+    }
 
-    ws.onerror = async (err) => {
-      console.log('WebSocket error:', err);
-      await sendMessageToTelegramBot(`Не удалось подключиться к сокетам - ${err}`);
-    };
-    
-    ws.onclose = async (event) => {
-      console.log('WebSocket closed:', event.code, event.reason);
-      await sendMessageToTelegramBot(`Соединение закрыто: ${event.code} ${event.reason || ''}`);
-    };
-
-    ws.onmessage = async (msg) => {
+    const onMessageHandler = (socketType) => async (msg) => {
       try {
         function extractAsciiStrings(
           bytes: Uint8Array,
@@ -199,7 +169,7 @@ const start = async (): Promise<void> => {
         const dataMsg = msg.data;
         if (dataMsg instanceof Blob) {
           const buffer = await dataMsg.arrayBuffer();
-          const bytes  = new Uint8Array(buffer);
+          const bytes = new Uint8Array(buffer);
           console.log('📦 Blob / Binary (first 32 bytes):', [
             ...bytes.slice(0, 32),
           ]);
@@ -209,13 +179,44 @@ const start = async (): Promise<void> => {
           console.log('🧪 Hex dump:', hexDump);
 
           // @ts-ignore – функция пришла из exposeFunction
-          window.ascii(extractAsciiStrings(bytes));
+          window.ascii(extractAsciiStrings(bytes), socketType);
         }
       } catch (e: any) {
-        console.log('e.message', e.message);
-        await sendMessageToTelegramBot("Ошибка расшифровки ответа от сокетов", e.message);
+        console.log(`e.message, socket type - ${socketType}:`, e.message);
+        await sendMessageToTelegramBot(`Ошибка расшифровки ответа от сокетов с фильтром ${socketType}: ${e.message}`);
       }
+    }
+
+    const onErrorHandler = (socketType) => async (err) => {
+      console.log(`WebSocket error, socket type - ${socketType}:`, err);
+      await sendMessageToTelegramBot(`Не удалось подключиться к сокетам с фильтром ${socketType} - ${err}`);
     };
+
+    const onCloseHandler = (socketType) => async (event) => {
+      console.log(`WebSocket closed, socket type - ${socketType}:`, event.code, event.reason);
+      await sendMessageToTelegramBot(`Соединение закрыто для сокета с фильтром ${socketType}: ${event.code} ${event.reason || ''}`);
+    };
+
+    const arrayTrendingScore = [
+      "M5",
+      "H1",
+      "H6",
+      "H24",
+    ]
+
+    arrayTrendingScore.forEach((score)=>{
+      const wsh = new WebSocket(
+        `wss://io.dexscreener.com/dex/screener/v5/pairs/h24/1?rankBy[key]=trendingScore${score}&rankBy[order]=desc&filters[chainIds][0]=solana`
+      );
+  
+      wsh.onopen = onOpenHandler(score);
+      
+      wsh.onerror = onErrorHandler(score);
+  
+      wsh.onclose = onCloseHandler(score)
+  
+      wsh.onmessage = onMessageHandler(score)
+    })
   });
 };
 
