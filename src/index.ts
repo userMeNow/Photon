@@ -1,27 +1,23 @@
-// index.ts
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-const WebSocket = require('ws');
+const WebSocket = require("ws");
 import { sendMessageToTelegramBot } from './telegram';
-import {saveArray} from "./helpers";
+import { saveArray } from "./helpers";
+import { extractTokenPairs } from './utils/tokenUtils';
+import express from 'express';
+import mongoose from 'mongoose';
+import tokenRoute from './routes/tokenRoute';
+import {saveToken} from "./services/tokenService";
 
+const app = express();
+const PORT = 3000;
+
+app.use(express.json());
+app.use('/', tokenRoute);
 // ─── puppeteer setup ────────────────────────────────────────────────────────────
 puppeteer.use(StealthPlugin());
 
 const wsClients = new Set<WebSocket>();
-
-interface TokenPair {
-  network: string;
-  dex: string;
-  poolAddress: string;
-  token1: string;
-  token2: string;
-  name: string;
-  symbol: string;
-  quoteSymbol: string;
-  priceSol: string;
-  priceUsd: string;
-}
 
 const start = async (): Promise<void> => {
   const browser = await puppeteer.launch({
@@ -34,27 +30,26 @@ const start = async (): Promise<void> => {
   const page = await browser.newPage();
   page.on('console', (msg) => console.log('[PAGE]', msg.text()));
 
-  // await page.setCookie(
-  //   {
-  //     name: 'cf_clearance',
-  //     value:
-  //       'VPWuvQsn5gwFtTyyHi8qqXU4EV0Jna63jyZg9Hy8k8w-1747835015-1.2.1.1-1OBO5tHpRc.2_JwL7mIfF3TapXOwxXwTZW_AAGbu_.ijO8dSxN_z44DqIgkmoZUDjZd4R0bbKJIrjZ6dOmmAgIqw7Q914ycGZJlStOv80eBXosZ9VS41Hva3_7ub4Ai6YbV.Ie8D_ZgIgu0y7IJyFFXmQiu8Wbp.IeKNfcBd0VOqswXs5McaJHj53zA_jGbokKHXb1wh0Z8XljRTup7NeMZ6MN5_OhwAHZr0CfHFMGJkiNhw4Kh2GOA4_6B0WGQAx0obFfG.QSw0Nxr_jh4rG8lKyhelqh.8cDVY_.VD9DUQWUk.sCr53WMcZ..g83L6suyUBgyRxFSXxgH7gVN5FOSXOpLwHXS9w3PijMOhI33rFOF2_VlyEJVDhzlNFwVR',
-  //     domain: '.dexscreener.com',
-  //     path: '/',
-  //     httpOnly: true,
-  //     secure: true,
-  //   },
-  //   {
-  //     name: '__cf_bm',
-  //     value:
-  //       'hUlbULBwm6HGXnXyqc0HhNpmzd3.Qm8ajSH3QYAjnKM-1747838856-1.0.1.1-I_Z5EnrqqAyClUU07kylMUJvMqqECp9bw1OdA0f8XNS.tOmXKOqpBxb4_E81Hk_GGsOd56VQhjwf6WjAGbC7mLHriD33wOMSRJT6N8zBseIH.4S9p9yR0dkK8X19m2vr',
-  //     domain: '.dexscreener.com',
-  //     path: '/',
-  //     httpOnly: true,
-  //     secure: true,
-  //   }
-  // );
-
+  await page.setCookie(
+    {
+      name: 'cf_clearance',
+      value:
+        'FRDwQiJAj_oWLJJqlSSprJsEgvFavVijSwGMcBjedK0-1747923227-1.2.1.1-BwS1g4QqnVoiL1pmO3D2N7uFhboChnHLDG_pWxASWar21Le3xUkS_GiaOwZorvaMFH.CayYfMw8HLUqJyblHXw087Xytd6F0Q7ziAgdF0m77nUUqOvQMx48RdXw1C7ASPNi.4OsrBXSTfpTKMsQSzxYCf3k_eVjFKA3fFBQplrQpss6cISKJ9wTz5GE8JIEvniqGfWkywa2MVnq4wUn6TYWfj.7BtES5s1luZnRgTyD7kQ0xTnmGcTuhdKPuaQUtlYHD5qocx6Am8e6sh.OWHsWIMmAJOwaQ8oOFUy.HCcr0L5w3SeebqX7DEhFQmxkUYYihiQ.afBWQtZFJBzs9abwVncvrygGBCxGBGS3iZbMZJMbrBBZoBy_XSfzeslwi',
+      domain: '.dexscreener.com',
+      path: '/',
+      httpOnly: true,
+      secure: true,
+    },
+    {
+      name: '__cf_bm',
+      value:
+        'SB9ubFZgkZcZ8ZOb.T1dNFwQs1l8cij9dHWlDupgpTk-1747928282-1.0.1.1-SQQYGfj_fg9hUm5_7yA_6IblpBD56FKpryAW86Xb9YnbowiDoaiX9_r2ajxfIQW5YSaYkKdMxoBctUgqD9u5.i9RY9kXQ7otGPS1IHSZlaUj.uCxNCszlEUg_sFcfnAR',
+      domain: '.dexscreener.com',
+      path: '/',
+      httpOnly: true,
+      secure: true,
+    }
+  );
 
   async function sleep(ms: number): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -71,71 +66,16 @@ const start = async (): Promise<void> => {
     timeout: 0,
   });
 
-  // ─── local parsers ────────────────────────────────────────────────────────────
-  const isLowerWord = (s: string): boolean => /^[a-z]{3,12}$/.test(s);
-  const isBase58 = (s: string): boolean => /^[A-Za-z0-9]{40,}$/.test(s);
-  const isUpperSymbol = (s: string): boolean => /^[A-Z0-9]{2,10}$/.test(s);
-  const isPrice = (s: string): boolean => /^\d*\.?\d+$/.test(s);
-  const looksQuote = (s: string): boolean => /(wrapped|usd|sol|eth)/i.test(s);
-
-  function splitPair(addr: string): { pool: string; tok1: string } {
-    const pool = addr.slice(addr.length - 89, 45); // длина двух адресов ~90
-    const tok1 = addr.slice(addr.length - 89 + pool.length + 1);
-    return { pool, tok1 };
-  }
-
-  function extractTokenPairs(rawStr: string[]): TokenPair[] {
-    try {
-      const ascii = rawStr;
-      const out: TokenPair[] = [];
-
-      for (let i = 0; i < ascii.length - 8; i++) {
-        if (!isLowerWord(ascii[i])) continue;
-        if (!isLowerWord(ascii[i + 1])) continue;
-        if (!isBase58(ascii[i + 2])) continue;
-
-        const { pool, tok1 } = splitPair(ascii[i + 2]);
-        const name = ascii[i + 3].replace(/^"+|"+$/g, '').trim();
-        const symbol = ascii[i + 4].replace(/^"+|"+$/g, '').trim();
-        if (!isUpperSymbol(symbol)) continue;
-
-        const quoteId = ascii[i + 5].replace(/^V/, '');
-        const quoteNm = ascii[i + 6];
-        if (!looksQuote(quoteNm)) continue;
-
-        const priceSol = ascii[i + 7];
-        const priceUsd = ascii[i + 8];
-        if (!isPrice(priceSol) || !isPrice(priceUsd)) continue;
-
-        out.push({
-          network: ascii[i],
-          dex: ascii[i + 1],
-          poolAddress: pool,
-          token1: tok1,
-          token2: quoteId,
-          name,
-          symbol,
-          quoteSymbol: quoteNm,
-          priceSol,
-          priceUsd,
-        });
-
-        i += 8;
-      }
-      return out;
-    } catch (e) {
-      console.error('extractTokenPairs error:', e);
-      return [];
-    }
-  }
-
   // ─── expose fn for browser → node ─────────────────────────────────────────────
   await page.exposeFunction('ascii', (data: string[], socketType): void => {
-    saveArray(`pairs/pairs_${socketType}.json`, data);
+    saveArray(`./pairs/pairs_${socketType}.json`, data);
 
     const newData = extractTokenPairs(data);
     if (newData?.length) {
-      saveArray(`pairs//out_pairs_${socketType}.json`, newData);
+      newData.forEach(element => {
+        saveToken(element)
+      });
+      saveArray(`./pairs/out_pairs_${socketType}.json`, newData);
       console.log(`newData_${socketType}`, newData);
     }
   });
@@ -203,20 +143,18 @@ const start = async (): Promise<void> => {
       "H6",
       "H24",
     ]
+    const score = arrayTrendingScore[0];
+    const wsh = new WebSocket(
+      `wss://io.dexscreener.com/dex/screener/v5/pairs/h24/1?rankBy[key]=trendingScore${score}&rankBy[order]=desc&filters[chainIds][0]=solana`
+    );
 
-    arrayTrendingScore.forEach((score)=>{
-      const wsh = new WebSocket(
-        `wss://io.dexscreener.com/dex/screener/v5/pairs/h24/1?rankBy[key]=trendingScore${score}&rankBy[order]=desc&filters[chainIds][0]=solana`
-      );
-  
-      wsh.onopen = onOpenHandler(score);
-      
-      wsh.onerror = onErrorHandler(score);
-  
-      wsh.onclose = onCloseHandler(score)
-  
-      wsh.onmessage = onMessageHandler(score)
-    })
+    wsh.onopen = onOpenHandler(score);
+
+    wsh.onerror = onErrorHandler(score);
+
+    wsh.onclose = onCloseHandler(score)
+
+    wsh.onmessage = onMessageHandler(score)
   });
 };
 
@@ -229,3 +167,14 @@ wss.on('connection', (ws) => {
 
 // ─── kick off ──────────────────────────────────────────────────────────────────
 start().catch((err) => console.error(err));
+
+mongoose.connect('mongodb://localhost:27017/tokens')
+  .then(() => {
+    console.log('MongoDB подключена');
+    app.listen(PORT, () => {
+      console.log(`Сервер работает на http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Ошибка подключения к MongoDB:', err);
+  });
