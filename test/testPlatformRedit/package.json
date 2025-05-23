@@ -3,18 +3,12 @@
     "@msgpack/msgpack": "^3.1.1",
     "avsc": "^5.7.7",
     "axios": "^1.9.0",
-    "bs58": "^6.0.0",
-    "buffer": "^6.0.3",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "i": "^0.3.7",
     "mongoose": "^8.15.0",
     "nodemon": "^3.1.10",
-    "puppeteer": "^24.8.2",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "redis": "^5.1.0",
-    "ws": "^8.18.2"
+    "redis": "^5.1.0"
   },
   "scripts": {
     "dev": "npx ts-node --transpile-only src/index.ts",
@@ -22,15 +16,13 @@
     "build": "tsc",
     "start": "node dist/index.js"
   },
-  "name": "dexscreenerWebsocket",
+  "name": "testPlatformRedis",
   "version": "1.0.0",
   "main": "index.ts",
   "license": "MIT",
   "devDependencies": {
     "@types/express": "^5.0.2",
-    "@types/mongoose": "^5.11.97",
     "@types/node": "^22.15.21",
-    "@types/ws": "^8.18.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
   }

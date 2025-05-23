@@ -1,3 +1,9 @@
+import dotenv from 'dotenv';
+dotenv.config();
+import {validateEnv} from "./utils/env";
+
+validateEnv()
+
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 const WebSocket = require("ws");
@@ -7,10 +13,12 @@ import { extractTokenPairs } from './utils/tokenUtils';
 import express from 'express';
 import mongoose from 'mongoose';
 import tokenRoute from './routes/tokenRoute';
-import {saveToken} from "./services/tokenService";
+import { saveToken } from "./services/tokenService";
+import { RedisService } from './redis';
 
 const app = express();
 const PORT = 3000;
+const logBrowser = process.env.LOG_BROWSER;
 
 app.use(express.json());
 app.use('/', tokenRoute);
@@ -28,13 +36,15 @@ const start = async (): Promise<void> => {
   });
 
   const page = await browser.newPage();
-  page.on('console', (msg) => console.log('[PAGE]', msg.text()));
+  if (logBrowser) {
+    page.on('console', (msg) => console.log('[PAGE]', msg.text()));
+  }
 
   await page.setCookie(
     {
       name: 'cf_clearance',
       value:
-        'FRDwQiJAj_oWLJJqlSSprJsEgvFavVijSwGMcBjedK0-1747923227-1.2.1.1-BwS1g4QqnVoiL1pmO3D2N7uFhboChnHLDG_pWxASWar21Le3xUkS_GiaOwZorvaMFH.CayYfMw8HLUqJyblHXw087Xytd6F0Q7ziAgdF0m77nUUqOvQMx48RdXw1C7ASPNi.4OsrBXSTfpTKMsQSzxYCf3k_eVjFKA3fFBQplrQpss6cISKJ9wTz5GE8JIEvniqGfWkywa2MVnq4wUn6TYWfj.7BtES5s1luZnRgTyD7kQ0xTnmGcTuhdKPuaQUtlYHD5qocx6Am8e6sh.OWHsWIMmAJOwaQ8oOFUy.HCcr0L5w3SeebqX7DEhFQmxkUYYihiQ.afBWQtZFJBzs9abwVncvrygGBCxGBGS3iZbMZJMbrBBZoBy_XSfzeslwi',
+        'fJyymWl8UrU1pwjN5mJ.bFJMBwBPf0Q74R.TOOe3coA-1748022813-1.2.1.1-DqBKpRJALoBIttQv15jVzKXR1fwbBX.MXguGp8AN1Mf9V3lcSheU8nuAkKQQ.PeaEKRIJ2UOdfYQXqOiqEaMrR35vfJKj4Wqb5Cy2PB6dxUtgr_u5VqD2Qfto9J2pBBlNdv7ct.llG8gnSfvMnYrts4tLEtLah4i9UMfTIqOi0Mt5H5WCicvJUVLAGfiWX4ALN8rLYdOA5G_mdtYSBRACum_sm_dm9gOuu9qTWsiv.fGwmKvW0zySvDRm.AVw1Yv0LbC7fPTDwNTykJKe9o9vdZ8HNuWsbVyo_btM6DUKnmvlILosVx9qC0NeLhDw5vIvvueSIg_0YFoBWII.D_bjaqyrAnhLRcJmIGFtEwGy2BWefER3GgimvsPdHfKdZMd',
       domain: '.dexscreener.com',
       path: '/',
       httpOnly: true,
@@ -43,7 +53,7 @@ const start = async (): Promise<void> => {
     {
       name: '__cf_bm',
       value:
-        'SB9ubFZgkZcZ8ZOb.T1dNFwQs1l8cij9dHWlDupgpTk-1747928282-1.0.1.1-SQQYGfj_fg9hUm5_7yA_6IblpBD56FKpryAW86Xb9YnbowiDoaiX9_r2ajxfIQW5YSaYkKdMxoBctUgqD9u5.i9RY9kXQ7otGPS1IHSZlaUj.uCxNCszlEUg_sFcfnAR',
+        'nqYASfWI5rsef1uh929g_oKcdPLG4ztukGg.2s2158M-1748022810-1.0.1.1-KM8quQ1sCojSok9_0Og1.tKvvCLq8DMd4fv4DYJk24fn8XZtFyAANsA1FF2F.ntwk1Ewyu.8A5P1_vprRdoyqTVF8Sb_GvGkZqBytRiixsUcBS7eMTZqhc4K4_NCq3lc',
       domain: '.dexscreener.com',
       path: '/',
       httpOnly: true,
@@ -67,16 +77,17 @@ const start = async (): Promise<void> => {
   });
 
   // ─── expose fn for browser → node ─────────────────────────────────────────────
-  await page.exposeFunction('ascii', (data: string[], socketType): void => {
-    saveArray(`./pairs/pairs_${socketType}.json`, data);
+  await page.exposeFunction('ascii', async (data: string[], socketType): Promise<void> => {
+    saveArray(`./pairs/pairs_${socketType}.json`, data);//сохраняем в файл последний результат
 
     const newData = extractTokenPairs(data);
     if (newData?.length) {
-      newData.forEach(element => {
+      newData.forEach(element => {//сохраняем в базу данных последний результат
         saveToken(element)
       });
-      saveArray(`./pairs/out_pairs_${socketType}.json`, newData);
-      console.log(`newData_${socketType}`, newData);
+      await RedisService.getInstance().publish(newData);
+      saveArray(`./pairs/out_pairs_${socketType}.json`, newData);//сохраняем в файл последний конвертированный результат
+      //console.log(`newData_${socketType}`, newData);
     }
   });
 
@@ -165,15 +176,18 @@ wss.on('connection', (ws) => {
   ws.on('close', () => wsClients.delete(ws));
 });
 
-// ─── kick off ──────────────────────────────────────────────────────────────────
-start().catch((err) => console.error(err));
-
-mongoose.connect('mongodb://localhost:27017/tokens')
-  .then(() => {
-    console.log('MongoDB подключена');
-    app.listen(PORT, () => {
-      console.log(`Сервер работает на http://localhost:${PORT}`);
-    });
+mongoose.connect('mongodb://localhost:27017/tokens')//запуск монго
+  .then(async () => {
+    try {
+      console.log('MongoDB подключена');
+      app.listen(PORT, () => {
+        console.log(`Сервер работает на http://localhost:${PORT}`);
+      });
+      await RedisService.getInstance().connect();//запуск редис
+      await start();//запуск браузера
+    } catch(e) {
+      console.log(`Ошибка во время старта проекта: ${e.message}`);
+    }
   })
   .catch((err) => {
     console.error('Ошибка подключения к MongoDB:', err);
