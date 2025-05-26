@@ -8,8 +8,9 @@ import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 const WebSocket = require("ws");
 import { sendMessageToTelegramBot } from './telegram';
-import { saveArray } from "./helpers";
+import { saveArray, sleep } from "./helpers";
 import { extractTokenPairs } from './utils/tokenUtils';
+import { TokenPair } from "./types";
 import express from 'express';
 import mongoose from 'mongoose';
 import tokenRoute from './routes/tokenRoute';
@@ -31,7 +32,7 @@ const start = async (): Promise<void> => {
   const browser = await puppeteer.launch({
     headless: false,
     userDataDir: './chrome-profile',
-    executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    //executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
 
@@ -82,103 +83,191 @@ const start = async (): Promise<void> => {
     timeout: 0,
   });
 
-  await pageAxiom.evaluate(() => {
-    fetch('https://api6.axiom.trade/meme-trending?timePeriod=24h', {
-      method: 'GET',
-      credentials: 'include'
-    }).then(res => res.json())
-      .then(data => console.log("✅ Trends:", data))
-      .catch(err => console.error("❌ Error:", err));
-  });
+  await pageAxiom.evaluate(async () => {
+    let trends = [];
+    let priceData = await (async () => {
+      const respPriceData = await fetch("https://axiom.trade/api/coin-prices", {
+        method: 'GET',
+        credentials: 'include'
+      });
 
-  await pageAxiom.evaluate(() => {
-    const onOpenHandler = () => () => {
-      console.log(`Socket connection was setted`)
+      return await respPriceData.json();
+    })();
 
-      const rooms = [
-        '1h-meme-trending',
-        'meme-trending-refresh-liquidities',
-        'sol_price',
-        'btc_price',
-        'eth_price',
-        'block_hash',
-        'jito-bribe-fee',
-        'sol-priority-fee',
-        'connection_monitor',
-        'twitter_active_list',
-        'twitter_feed_v2'
-      ];
+    function buildTokenPair(tokenData, priceData): TokenPair {
+      const solPriceUsd = parseFloat(priceData?.data?.SOL || '0');
+      const supply = tokenData?.supply || 0;
+      const marketCapSol = tokenData?.marketCapSol || 0;
 
-      for (const room of rooms) {
-        wsh.send(JSON.stringify({ action: 'join', room }));
-        console.log(`📤 Subscribing to room: ${room}`);
-      }
+      const priceSol = supply > 0 ? marketCapSol / supply : 0;
+      const priceUsd = priceSol * solPriceUsd;
+
+      return {
+        network: 'solana',
+        dex: tokenData.protocol || 'unknown',
+        poolAddress: tokenData.pairAddress,
+        token1: tokenData.tokenAddress,
+        token2: tokenData.protocolDetails?.pairTokenAccount || '',
+        name: tokenData.tokenName,
+        symbol: tokenData.tokenTicker,
+        quoteSymbol: 'SOL',
+        priceSol: priceSol.toFixed(12),
+        priceUsd: priceUsd.toFixed(6),
+        liquiditySol: tokenData.liquiditySol,
+        liquidityToken: tokenData.liquidityToken,
+        marketCapSol: tokenData.marketCapSol,
+        prevMarketCapSol: tokenData.prevMarketCapSol,
+        marketCapPercentChange: tokenData.marketCapPercentChange,
+        volumeSol: tokenData.volumeSol,
+        buyCount: tokenData.buyCount,
+        sellCount: tokenData.sellCount
+      };
     }
 
-    const onMessageHandler = () => async (msg) => {
-      try {
-        function extractAsciiStrings(
-          bytes: Uint8Array,
-          minLength = 4
-        ): string[] {
-          let str = '';
-          const results: string[] = [];
-          for (const b of bytes) {
-            if (b >= 32 && b <= 126) {
-              str += String.fromCharCode(b);
+    const getTrendsInfo = async () => {
+      let trends = [];
+      const links = [
+        "https://api6.axiom.trade/meme-trending?timePeriod=",
+        //"https://api2.axiom.trade/old-trending?timePeriod="
+      ]
+
+      const timePeriod = [
+        "5m",
+        "1h",
+        "6h",
+        "24h"
+      ]
+
+      for (let keyLink = 0; keyLink < links.length; keyLink++) {
+        const link = links[keyLink];
+        for (let keyPeriod = 0; keyPeriod < timePeriod.length; keyPeriod++) {
+          const period = timePeriod[keyPeriod];
+          await new Promise(resolve => setTimeout(resolve, 1000 * keyPeriod))
+
+          try {
+            const res = await fetch(link + period, {
+              method: 'GET',
+              credentials: 'include'
+            });
+
+            const data = await res.json();
+            //console.log("✅ Trends:", JSON.stringify(data));
+
+            if (!trends[period]) {
+              trends[period] = data.map(e => buildTokenPair(e, priceData));
             } else {
-              if (str.length >= minLength) results.push(str);
-              str = '';
+              trends[period] = [...trends[period], ...data.map(e => buildTokenPair(e, priceData))];
             }
+            console.log("✅ trends[" + period + "period]:", trends[period]);
+            // socketSubscribeForAxiom();
+          } catch (err) {
+            console.error("❌ Error:", err);
+            await sendMessageToTelegramBot(`Error happened in time parsing of data: ${err.message}`);
           }
-          if (str.length >= minLength) results.push(str);
-          return results;
         }
-
-        const dataMsg = msg.data;
-        console.log("dataMsg", dataMsg);
-        if (dataMsg instanceof Blob) {
-          const buffer = await dataMsg.arrayBuffer();
-          const bytes = new Uint8Array(buffer);
-          console.log('📦 Blob / Binary (first 32 bytes):', [
-            ...bytes.slice(0, 32),
-          ]);
-          const hexDump = [...bytes.slice(0, 32)]
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join(' ');
-          console.log('🧪 Hex dump:', hexDump);
-
-          // @ts-ignore – function came from exposeFunction
-          console.log("extractAsciiStrings(bytes)", extractAsciiStrings(bytes))
-        }
-      } catch (e: any) {
-        console.log(`e.message`, e.message);
-        await sendMessageToTelegramBot(`Error decoding socket response with filter: ${e.message}`);
       }
+
+      return trends
     }
 
-    const onErrorHandler = () => async (err) => {
-      console.log(`WebSocket error:`, err);
-      await sendMessageToTelegramBot(`Failed to connect to sockets - ${err}`);
-    };
+    //сделать вызов ее каждые 5 минут для актуализации данных
+    trends = await getTrendsInfo();
 
-    const onCloseHandler = () => async (event) => {
-      console.log(`WebSocket closed:`, event.code, event.reason);
-      await sendMessageToTelegramBot(`Соединение закрыто для сокета: ${event.code} ${event.reason || ''}`);
-    };
 
-    const wsh = new WebSocket(
-      `wss://cluster3.axiom.trade/?`
-    );
+    const socketSubscribeForAxiom = () => {
+      const onOpenHandler = () => () => {
+        console.log(`Socket connection was setted`)
+        //добавить отправку ping каждую минуту
+        const rooms = [
+          '1h-meme-trending',
+          'meme-trending-refresh-liquidities',//важная
+          'sol_price',//важная
+          'btc_price',
+          'eth_price',
+          'block_hash',
+          'jito-bribe-fee',
+          'sol-priority-fee',
+          'connection_monitor',
+          'twitter_active_list',
+          'twitter_feed_v2'
+        ];//важные подписки 
 
-    wsh.onopen = onOpenHandler();
+        //после обновления данных добавить отправку их в redis
 
-    wsh.onerror = onErrorHandler();
+        for (const room of rooms) {
+          wsh.send(JSON.stringify({ action: 'join', room }));
+          console.log(`📤 Subscribing to room: ${room}`);
+        }
+      }
+      
+      const onMessageHandler = () => async (msg) => {
+        try {
+          function extractAsciiStrings(
+            bytes: Uint8Array,
+            minLength = 4
+          ): string[] {
+            let str = '';
+            const results: string[] = [];
+            for (const b of bytes) {
+              if (b >= 32 && b <= 126) {
+                str += String.fromCharCode(b);
+              } else {
+                if (str.length >= minLength) results.push(str);
+                str = '';
+              }
+            }
+            if (str.length >= minLength) results.push(str);
+            return results;
+          }
 
-    wsh.onclose = onCloseHandler()
+          const dataMsg = msg.data;
+          console.log("dataMsg", dataMsg);
+          if (dataMsg instanceof Blob) {
+            const buffer = await dataMsg.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            console.log('📦 Blob / Binary (first 32 bytes):', [
+              ...bytes.slice(0, 32),
+            ]);
+            const hexDump = [...bytes.slice(0, 32)]
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join(' ');
+            console.log('🧪 Hex dump:', hexDump);
 
-    wsh.onmessage = onMessageHandler()
+            // @ts-ignore – function came from exposeFunction
+            console.log("extractAsciiStrings(bytes)", extractAsciiStrings(bytes))
+          }
+        } catch (e: any) {
+          console.log(`e.message`, e.message);
+          await sendMessageToTelegramBot(`Error decoding socket response with filter: ${e.message}`);
+        }
+      }
+
+      const onErrorHandler = () => async (err) => {
+        console.log(`WebSocket error:`, err);
+        await sendMessageToTelegramBot(`Failed to connect to sockets - ${err}`);
+      };
+
+      const onCloseHandler = () => async (event) => {
+        console.log(`WebSocket closed:`, event.code, event.reason);
+        await sendMessageToTelegramBot(`Connection for socket was closed: ${event.code} ${event.reason || ''}`);
+      };
+
+      const wsh = new WebSocket(
+        `wss://cluster3.axiom.trade/?`
+      );
+
+      wsh.onopen = onOpenHandler();
+
+      wsh.onerror = onErrorHandler();
+
+      wsh.onclose = onCloseHandler()
+
+      wsh.onmessage = onMessageHandler()
+    }
+
+    console.log("getTradeInfo", JSON.stringify(trends));
   });
+
 
   return;
   const page = await browser.newPage();
@@ -206,10 +295,6 @@ const start = async (): Promise<void> => {
       secure: true,
     }
   );
-
-  async function sleep(ms: number): Promise<void> {
-    await new Promise(resolve => setTimeout(resolve, ms));
-  }
 
   await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded' });
   await sleep(2000);

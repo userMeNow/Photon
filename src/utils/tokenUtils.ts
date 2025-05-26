@@ -1,15 +1,4 @@
-export interface TokenPair {
-  network: string;
-  dex: string;
-  poolAddress: string;
-  token1: string;
-  token2: string;
-  name: string;
-  symbol: string;
-  quoteSymbol: string;
-  priceSol: string;
-  priceUsd: string;
-}
+import {TokenPair} from "../types";
 
 export const isLowerWord = (s: string): boolean => /^[a-z]{3,12}$/.test(s);
 export const isBase58 = (s: string): boolean => /^[A-Za-z0-9]{40,}$/.test(s);

@@ -9,4 +9,12 @@ export interface TokenPair {
     quoteSymbol: string;
     priceSol: string;
     priceUsd: string;
+    liquiditySol: number;
+    liquidityToken: number;
+    marketCapSol: number;
+    prevMarketCapSol: number;
+    marketCapPercentChange: number;
+    volumeSol: number;
+    buyCount: number;
+    sellCount: number;
   }
