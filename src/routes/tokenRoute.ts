@@ -11,7 +11,7 @@ router.get('/tokens', async (req: Request, res: Response) => {
     const tokens = await getTokens(limit, offset);
     res.json(tokens);
   } catch (err) {
-    res.status(500).json({ error: 'Ошибка при получении токенов' });
+    res.status(500).json({ error: 'Error getting tokens' });
   }
 });
 

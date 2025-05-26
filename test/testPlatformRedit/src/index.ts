@@ -13,12 +13,12 @@ async function main() {
   await initRedis();
   
   await redis.subscribe(process.env.REDIS_SUB_CHANNEL!, (msg) => {
-    console.log('Ответ от микросервиса:', msg);
+    console.log('Response from microservice:', msg);
   });
 
   const port = process.env.PORT || 4000;
   app.listen(port, () => {
-    console.log(`Платформа слушает на http://localhost:${port}`);
+    console.log(`Platform listening on http://localhost:${port}`);
   });
 }
 

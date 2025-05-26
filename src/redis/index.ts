@@ -25,7 +25,7 @@ export class RedisService {
     this.client.on('end', async () => {
       console.group('[RedisService]');
       console.warn('Redis connection ended');
-      await sendMessageToTelegramBot(`Redis сервис отвалился`);
+      await sendMessageToTelegramBot(`Redis service disconnected`);
       console.groupEnd();
     });
 
@@ -35,9 +35,9 @@ export class RedisService {
 
       if (this.lastReconnectNotify === 0 || now - this.lastReconnectNotify >= RedisService.RECONNECT_NOTIFY_INTERVAL) {
         this.lastReconnectNotify = now;
-        await sendMessageToTelegramBot(`⚠️ Redis сервис отвалился, пытаюсь переподключиться...`);
+        await sendMessageToTelegramBot(`⚠️ Redis service disconnected, attempting to reconnect...`);
       }
-      console.log('Попытка переподключения к Redis...');
+      console.log('Attempting to reconnect to Redis...');
       console.groupEnd();
     });
 
@@ -46,11 +46,11 @@ export class RedisService {
       console.group('[RedisService]');
       this.lastReconnectNotify = 0;
       if (!this.wasPreviouslyConnected) {
-        console.log('Redis подключён');
+        console.log('Redis connected');
         this.wasPreviouslyConnected = true;
       } else {
-        await sendMessageToTelegramBot(`Redis сервис - соединение восстановлено`);
-        console.log(`Redis сервис - соединение восстановлено`);
+        await sendMessageToTelegramBot(`Redis service - connection restored`);
+        console.log(`Redis service - connection restored`);
       }
       console.groupEnd();
     });
@@ -73,9 +73,9 @@ export class RedisService {
       })
       .catch((e) => {
         console.group('[RedisService]');
-        console.error('Ошибка подключения к Redis:', e.message);
-        throw new Error(`Redis wasn't connected! ${e.message}`);
+        console.error('Error connecting to Redis:', e.message);
         console.groupEnd();
+        throw new Error(`Redis wasn't connected! ${e.message}`);
       });
 
     return this.connectPromise;
@@ -90,20 +90,20 @@ export class RedisService {
 
   public async publish(message: object) {
     console.group('[RedisService]');
-    console.log("Отправка информации в redis")
+    console.log("Sending information to redis")
     await this.client.publish(process.env.REDIS_PUB_CHANNEL!,
       JSON.stringify(message)
     ).then(() => {
-      console.log("Отправка выполнена");
+      console.log("Send completed");
     }).catch((e) => {
-      console.log("Произошла ошибка во время отправки в redis", e);
+      console.log("Error occurred while sending to redis", e);
     });
     console.groupEnd();
   }
 
   private async makeSubscribes() {
     console.group('[RedisService]');
-    console.log("Выполняю подпискe на сервис");
+    console.log("Subscribing to service");
     await this.client.subscribe(process.env.REDIS_SUB_CHANNEL!, (msg) => {
       console.log('Ответ от микросервиса:', msg);
     }).then(() => {
