@@ -11,9 +11,19 @@ export interface IToken extends Document {
   quoteSymbol: string;
   priceSol: string;
   priceUsd: string;
+  supply: number;
+  liquiditySol: number;
+  liquidityToken: number;
+  marketCapSol: number;
+  prevMarketCapSol: number;
+  marketCapPercentChange: number;
+  volumeSol: number;
+  buyCount: number;
+  sellCount: number;
   createdAt?: Date;
   updatedAt?: Date;
 }
+
 
 const TokenSchema = new Schema<IToken>(
   {
@@ -26,9 +36,19 @@ const TokenSchema = new Schema<IToken>(
     symbol: String,
     quoteSymbol: String,
     priceSol: String,
-    priceUsd: String
+    priceUsd: String,
+    supply: Number,
+    liquiditySol: Number,
+    liquidityToken: Number,
+    marketCapSol: Number,
+    prevMarketCapSol: Number,
+    marketCapPercentChange: Number,
+    volumeSol: Number,
+    buyCount: Number,
+    sellCount: Number
   },
   { timestamps: true }
 );
+
 
 export const Token = mongoose.model<IToken>('Token', TokenSchema);

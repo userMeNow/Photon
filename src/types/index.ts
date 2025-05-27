@@ -9,6 +9,7 @@ export interface TokenPair {
     quoteSymbol: string;
     priceSol: string;
     priceUsd: string;
+    supply: number;
     liquiditySol: number;
     liquidityToken: number;
     marketCapSol: number;

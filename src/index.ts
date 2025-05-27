@@ -83,8 +83,19 @@ const start = async (): Promise<void> => {
     timeout: 0,
   });
 
+  await pageAxiom.exposeFunction('saveTrends', async (trendsInfo: Record<'5m' | '1h' | '6h' | '24h', TokenPair[]>): Promise<void> => {
+    for (const period in trendsInfo) {
+      saveArray(`./pairs/out_pairs_${period}.json`, trendsInfo[period]);
+
+      trendsInfo[period].forEach(element => {
+        saveToken(element)
+      });
+      await RedisService.getInstance().publish(trendsInfo[period], period);
+    }
+  });
+
   await pageAxiom.evaluate(async () => {
-    let trends = [];
+    let trends: any = [];
     let priceData = await (async () => {
       const respPriceData = await fetch("https://axiom.trade/api/coin-prices", {
         method: 'GET',
@@ -93,6 +104,10 @@ const start = async (): Promise<void> => {
 
       return await respPriceData.json();
     })();
+
+    async function localSleep(duration: number) {
+      return await new Promise(resolve => setTimeout(resolve, duration));
+    }
 
     function buildTokenPair(tokenData, priceData): TokenPair {
       const solPriceUsd = parseFloat(priceData?.data?.SOL || '0');
@@ -111,6 +126,7 @@ const start = async (): Promise<void> => {
         name: tokenData.tokenName,
         symbol: tokenData.tokenTicker,
         quoteSymbol: 'SOL',
+        supply,
         priceSol: priceSol.toFixed(12),
         priceUsd: priceUsd.toFixed(6),
         liquiditySol: tokenData.liquiditySol,
@@ -125,7 +141,7 @@ const start = async (): Promise<void> => {
     }
 
     const getTrendsInfo = async () => {
-      let trends = [];
+      let trendsInfo: any = {};
       const links = [
         "https://api6.axiom.trade/meme-trending?timePeriod=",
         //"https://api2.axiom.trade/old-trending?timePeriod="
@@ -151,15 +167,13 @@ const start = async (): Promise<void> => {
             });
 
             const data = await res.json();
-            //console.log("✅ Trends:", JSON.stringify(data));
 
-            if (!trends[period]) {
-              trends[period] = data.map(e => buildTokenPair(e, priceData));
+            if (!trendsInfo[period]) {
+              trendsInfo[period] = data.map(e => buildTokenPair(e, priceData));
             } else {
-              trends[period] = [...trends[period], ...data.map(e => buildTokenPair(e, priceData))];
+              trendsInfo[period] = [...trendsInfo[period], ...data.map(e => buildTokenPair(e, priceData))];
             }
-            console.log("✅ trends[" + period + "period]:", trends[period]);
-            // socketSubscribeForAxiom();
+            console.log("✅ trendsInfo[" + period + "period]:", trendsInfo[period]);
           } catch (err) {
             console.error("❌ Error:", err);
             await sendMessageToTelegramBot(`Error happened in time parsing of data: ${err.message}`);
@@ -167,74 +181,70 @@ const start = async (): Promise<void> => {
         }
       }
 
-      return trends
+      return trendsInfo
     }
 
-    //сделать вызов ее каждые 5 минут для актуализации данных
     trends = await getTrendsInfo();
 
 
     const socketSubscribeForAxiom = () => {
-      const onOpenHandler = () => () => {
+      const onOpenHandler = () => async () => {
         console.log(`Socket connection was setted`)
-        //добавить отправку ping каждую минуту
         const rooms = [
-          '1h-meme-trending',
-          'meme-trending-refresh-liquidities',//важная
-          'sol_price',//важная
-          'btc_price',
-          'eth_price',
-          'block_hash',
-          'jito-bribe-fee',
-          'sol-priority-fee',
-          'connection_monitor',
-          'twitter_active_list',
-          'twitter_feed_v2'
-        ];//важные подписки 
-
-        //после обновления данных добавить отправку их в redis
+          'meme-trending-refresh-liquidities',
+          'sol_price',
+        ];
 
         for (const room of rooms) {
           wsh.send(JSON.stringify({ action: 'join', room }));
-          console.log(`📤 Subscribing to room: ${room}`);
+          console.log(`Subscribing to room: ${room}`);
+        }
+
+        while (true) {
+          if (wsh.readyState === WebSocket.OPEN) {
+            wsh.send(JSON.stringify({ method: "ping" }));
+            console.log(`Sending ping`);
+          } else{
+            break;
+          }
+          await localSleep(30*1000);
         }
       }
-      
+
       const onMessageHandler = () => async (msg) => {
         try {
-          function extractAsciiStrings(
-            bytes: Uint8Array,
-            minLength = 4
-          ): string[] {
-            let str = '';
-            const results: string[] = [];
-            for (const b of bytes) {
-              if (b >= 32 && b <= 126) {
-                str += String.fromCharCode(b);
-              } else {
-                if (str.length >= minLength) results.push(str);
-                str = '';
+          const dataMsg = JSON.parse(msg.data);
+          console.log("dataMsg", dataMsg);
+          if (dataMsg.room === "meme-trending-refresh-liquidities") {
+            console.log("trends before", trends)
+            for (const period in trends) {
+              if (Array.isArray(trends[period])) {
+                trends[period] = trends[period].map(trend => {
+                  const matchingLiqToken = dataMsg.content.find(liqToken => liqToken.pairAddress === trend.poolAddress);
+                  return matchingLiqToken ? { ...trend, ...matchingLiqToken } : trend;
+                });
               }
             }
-            if (str.length >= minLength) results.push(str);
-            return results;
-          }
+            console.log("trends after", trends)
+            window.saveTrends(trends);
+          } else if (dataMsg.room === "sol_price") {
+            console.log("[sol_price]trends before", trends)
+            for (const period in trends) {
+              if (Array.isArray(trends[period])) {
+                trends[period] = trends[period].map(trend => {
+                  const priceSol = trend.supply > 0 ? trend.marketCapSol / trend.supply : 0;
+                  const priceUsd = priceSol * dataMsg.content;
 
-          const dataMsg = msg.data;
-          console.log("dataMsg", dataMsg);
-          if (dataMsg instanceof Blob) {
-            const buffer = await dataMsg.arrayBuffer();
-            const bytes = new Uint8Array(buffer);
-            console.log('📦 Blob / Binary (first 32 bytes):', [
-              ...bytes.slice(0, 32),
-            ]);
-            const hexDump = [...bytes.slice(0, 32)]
-              .map((b) => b.toString(16).padStart(2, '0'))
-              .join(' ');
-            console.log('🧪 Hex dump:', hexDump);
-
-            // @ts-ignore – function came from exposeFunction
-            console.log("extractAsciiStrings(bytes)", extractAsciiStrings(bytes))
+                  return ({
+                    ...trend,
+                    priceSol: priceSol.toFixed(12),
+                    priceUsd: priceUsd.toFixed(6),
+                  })
+                });
+              }
+            }
+            console.log("[sol_price]trends after", trends)
+            window.saveTrends(trends);
           }
         } catch (e: any) {
           console.log(`e.message`, e.message);
@@ -265,7 +275,12 @@ const start = async (): Promise<void> => {
       wsh.onmessage = onMessageHandler()
     }
 
-    console.log("getTradeInfo", JSON.stringify(trends));
+    socketSubscribeForAxiom();
+
+    while(true){
+      trends = await getTrendsInfo();
+      await localSleep(5*60*1000);
+    }
   });
 
 

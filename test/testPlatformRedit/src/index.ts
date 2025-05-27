@@ -12,9 +12,11 @@ app.use('/', api);
 async function main() {
   await initRedis();
   
-  await redis.subscribe(process.env.REDIS_SUB_CHANNEL!, (msg) => {
-    console.log('Response from microservice:', msg);
-  });
+  for(const channel of ['5m', '1h', '6h', '24h']){
+    await redis.subscribe(process.env.REDIS_SUB_CHANNEL!+channel, (msg) => {
+      console.log('Response from microservice:', msg);
+    });
+  }
 
   const port = process.env.PORT || 4000;
   app.listen(port, () => {

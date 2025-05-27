@@ -88,10 +88,10 @@ export class RedisService {
     return this.client;
   }
 
-  public async publish(message: object) {
+  public async publish(message: object, channelCode: string) {
     console.group('[RedisService]');
     console.log("Sending information to redis")
-    await this.client.publish(process.env.REDIS_PUB_CHANNEL!,
+    await this.client.publish(process.env.REDIS_PUB_CHANNEL+channelCode,
       JSON.stringify(message)
     ).then(() => {
       console.log("Send completed");
